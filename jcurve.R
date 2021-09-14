@@ -7,15 +7,10 @@
 
 # set up ------------------------------------------------------------------
 
-setwd("W:/Stage Fall/R/")
-
-# load necessary packages
-# source("functions/packages.R")
-
-# load up our functions into memory
-# source("functions/summarise_data.R")
+setwd("C:/Users/andersone/Documents/Projects Local/Stage Fall Local/harrison")
 
 # load libraries
+library(tidyr)
 library(segmented)
 library(dplyr)
 library(ggplot2)
@@ -49,11 +44,9 @@ data_table <- data_table_raw %>%
   mutate(jcurve_discharge_spreadsheet = as.numeric(jcurve_discharge_spreadsheet)) %>%
   mutate(jcurve_discharge_calculated = -9999)
 
-
 freefall_table <- read.csv("FreeFallTable.csv", skip = 1, header = TRUE, col.names = c("gauge_height", "freefall", "difference"))
 hq <- read.csv("StageDischargeTable.csv", skip = 2, header = TRUE, col.names = c("gauge_height", "freefall_q", "difference"))
 jcurve <- read.csv("JTable.csv", skip = 1, header = TRUE, col.names = c("freefall_ratio", "freefall_q_ratio", "difference"))
-
 
 # free fall ---------------------------------------------------------------
 
@@ -110,7 +103,7 @@ ggplot(freefall_table, aes(x = gauge_height, y = freefall, colour = curve)) +
   theme_bw() +
   labs(
     x = "Harrison Lake Gauge Height (ft)",
-    y = "Free Fall (units)",
+    y = "Free Fall (ft)",
     title = "Free Fall Plot"
   ) +
   # eliminate title
@@ -133,48 +126,29 @@ ggsave("output/Free Fall Plot.png")
 
 # stage-discharge ---------------------------------------------------------
 
-hq$curve <- ifelse(hq$gauge_height <= 31, "Curve D", "Curve E")
+A <- 845.463615649259
+B <- 25.5136132413396
+n <- 1.58997291940515
 
-# # linear models
-# hq_D <- hq %>%
-#     filter(curve == "Curve D")
-#
-# curveD <- lm(freefall_discharge ~ gauge_height, data = hq_D)
-# curveD_slope <- as.numeric(curveD$coefficients[2])
-# curveD_intercept <- as.numeric(curveD$coefficients[1])
-# eqD <- paste("y = ", signif(curveD_slope, 4), "x + ", signif(curveD_intercept, 4), sep = "")
-#
-# hq_E <- hq %>%
-#     filter(curve == "Curve E")
-#
-# curveE <- lm(freefall_q ~ gauge_height, data = hq_E)
-# curveE_slope <- as.numeric(curveE$coefficients[2])
-# curveE_intercept <- as.numeric(curveE$coefficients[1])
-# eqE <- paste("y = ", signif(curveE_slope, 4), "x + ", signif(curveE_intercept, 4), sep = "")
+hq$model_freefall_q <- A*(hq$gauge_height-B)^n
 
-# calculate free fall discharge
-#if (harrison_lake_elevation_ft <= 31) {
-  eqD <- "y = 128.29x² - 5492.1x + 57638"
-#} else {
-  # eqE <- "y = 73.909x² + 361.1x - 72507"
-  eqE <- "y = 72.755x² + 452.41x - 74299"
-  
-ggplot(hq, aes(x = gauge_height, y = freefall_q, colour = curve)) +
+hq_plotting <- hq %>% 
+  select(gauge_height, freefall_q, model_freefall_q) %>% 
+  pivot_longer(!gauge_height, names_to = "source", values_to = "q")
+
+ggplot(hq_plotting, aes(x = q, y = gauge_height, colour = source)) +
   geom_point() +
   theme_bw() +
   labs(
-    x = "Harrison Lake Gauge Height (ft)",
-    y = "Free Fall Discharge (cfs)",
+    x = "Free Fall Discharge (cfs)",
+    y = "Harrison Lake Gauge Height (ft)",
     title = "Stage Discharge Curve"
   ) +
-  scale_x_continuous(breaks = seq(from = 26, to = 44, by = 1)) +
-  geom_vline(xintercept = 31) +
-  theme(legend.title = element_blank()) +
-# add regression
-# geom_smooth(method = lm, se = FALSE) # +
-# # add equations
-annotate("text", label = eqD, x = 28.5, y = 60000) +
-annotate("text", label = eqE, x = 36, y = 60000)
+  # scale_x_continuous(breaks = seq(from = 26, to = 44, by = 1)) +
+  theme(legend.title = element_blank()) # +
+  # add equations
+  # annotate("text", label = eqD, x = 28.5, y = 60000) +
+  # annotate("text", label = eqE, x = 36, y = 60000)
 ggsave("output/Free Fall Stage Discharge Curve.png")
 
 
@@ -222,12 +196,8 @@ calculate_discharge <- function(harrison_lake_elevation, harrison_river_morris_e
   freefall_ratio <- fall_ft / freefall_ft
 
   # calculate free fall discharge
-  if (harrison_lake_elevation_ft <= 31) {
-    freefall_discharge <- 128.29 * harrison_lake_elevation_ft^2 - 5492.1 * harrison_lake_elevation_ft + 57638
-  } else {
-    freefall_discharge <- 72.755 * harrison_lake_elevation_ft^2 + 452.41 * harrison_lake_elevation_ft - 74299
-  }
-
+  freefall_discharge <- A*(harrison_lake_elevation_ft-B)^n
+  
   # free fall Q ratio
   freefall_q_ratio <- curveJ_slope * freefall_ratio + curveJ_intercept
 
