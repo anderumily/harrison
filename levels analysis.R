@@ -150,7 +150,8 @@ ggplot(fraser_at_harrison, aes(x = datetime, y = stage)) +
 ggsave("output/levels analysis/08MF073 15 minute level.png", width = w, height = h)
 
 
-# load field visit table --------------------------------------------------
+
+# load aquarius field visit table -----------------------------------------
 
 # get mmnts from FieldVisitExport.csv - retreived from Regan's python export tool
 aquarius_mmnts <- read.csv("data/FieldVisitExport.csv",
@@ -166,7 +167,7 @@ aquarius_mmnts <- read.csv("data/FieldVisitExport.csv",
 
 names(aquarius_mmnts) <- c("datetime", "q")
 
-# fraser vs harrison at harrison mills ------------------------------------
+# fraser harrison confluence comparison -----------------------------------
 
 # what is the difference between fraser at harrison and harrison at harrison mills?
 
@@ -198,58 +199,138 @@ ggplot(lake_to_mills_comparison, aes(x = datetime, y = difference)) +
     labs(x = "Year", y = "Difference in Stage (m)", title = "Difference between Harrison Lake and Harrison River at Harrison Mills")
 ggsave("output/levels analysis/Difference between Harrison Lake and Harrison River at Harrison Mills.png", width = w, height = h)
 
-# overlay measurements
-aquarius_mmnts <- aquarius_mmnts %>% 
-    mutate(q_scaled = q/200)
 
-lake_to_mills_comparison_with_mmnts <- 
-    lake_to_mills_comparison %>% 
-    select(datetime, difference) %>% 
-    full_join(aquarius_mmnts) %>% 
-    select(datetime, difference, q_scaled) %>% 
-    pivot_longer(cols = c("difference","q_scaled"),
-                 names_to = "variable",
-                 values_to = "value") %>% 
-    filter(datetime >= as.POSIXct("2013-03-18 00:00")) %>% 
-    drop_na()
+# tidy --------------------------------------------------------------------
 
-ggplot(lake_to_mills_comparison_with_mmnts, aes(x = datetime, y = value)) + 
-    geom_point(aes(colour = variable)) + 
-    scale_colour_manual(values = c("grey", "black")) +
+rm(confluence_comparison)
+rm(lake_to_mills_comparison)
+
+# lake to harrison morris (fall) ------------------------------------------
+
+lake_to_morris_comparison <- merge(lake, harrison_morris, by = "datetime") %>% 
+    rename(lake_stage = stage.x,
+           harrison_morris_stage = stage.y) %>% 
+    mutate(fall = lake_stage - harrison_morris_stage)
+
+summary(lake_to_morris_comparison)
+
+ggplot(lake_to_morris_comparison, aes(x = datetime, y = fall)) + 
+    geom_line() + 
     theme_bw() + 
-    labs(x = "Year", y = "Difference in Stage (m) and Q/200 (cms/200)", 
-         title = "Difference between Harrison Lake and Harrison River at Harrison Mills plus Discrete Measurements Scaled")
+    labs(x = "Year", y = "Fall (m)", title = "Difference between Harrison Lake and Harrison River below Morris Creek")
+ggsave("output/levels analysis/Difference between Harrison Lake and Harrison River below Morris Creek.png", width = w, height = h)
 
-# difference vs measurements ----------------------------------------------
+# # overlay measurements - this plot is not great, comment out
+# aquarius_mmnts <- aquarius_mmnts %>% 
+#     mutate(q_scaled = q/400)
+# 
+# lake_to_morris_comparison_with_mmnts <- 
+#     lake_to_morris_comparison %>% 
+#     select(datetime, fall) %>% 
+#     full_join(aquarius_mmnts) %>% 
+#     select(datetime, fall, q_scaled) %>% 
+#     pivot_longer(cols = c("fall","q_scaled"),
+#                  names_to = "variable",
+#                  values_to = "value") %>% 
+#     filter(datetime >= as.POSIXct("2013-03-18 00:00")) %>% 
+#     drop_na()
+# 
+# ggplot(lake_to_morris_comparison_with_mmnts, aes(x = datetime, y = value)) + 
+#     geom_point(aes(colour = variable)) + 
+#     scale_colour_manual(values = c("grey", "black")) +
+#     theme_bw() + 
+#     labs(x = "Year", y = "Difference in Stage (m) and Q/400 (cms/200)", 
+#          title = "Difference between Harrison Lake and Harrison River below Morris Creek plus Discrete Measurements Scaled")
 
-# START HERE change this analysis to Fall vs Measured Discharge for more points 
-# (Harrison at Mills only starts in Aq in 2013)
+# fall vs measurements ----------------------------------------------
 
-differential_vs_mmnts <- full_join(lake_to_mills_comparison, aquarius_mmnts) %>% 
+# join fall and measurements
+fall_vs_mmnts <- full_join(lake_to_morris_comparison, aquarius_mmnts[,c(1,2)])
+summary(fall_vs_mmnts)
+
+# number of q mmnts
+nrow(fall_vs_mmnts) - 558997
+
+# not all measurements correspond to a level - round to daily data
+
+# check where multiple measurements occur on the same day
+multiple_measurements <- fall_vs_mmnts %>%
+    # use floor date to round down for daily date
+    mutate(datetime_rounded = floor_date(ymd_hms(datetime), "day")) %>% 
+    filter(is.na(q) == FALSE) %>% 
+    select(datetime_rounded) %>% 
+    filter(duplicated(datetime_rounded))
+
+fall_vs_mmnts_daily <- fall_vs_mmnts %>% 
+    # use floor date to round down for daily date
+    mutate(datetime_rounded = floor_date(ymd_hms(datetime), "day")) %>% 
+    # group by daily data
+    group_by(datetime_rounded) %>% 
+    # get daily
+    summarise(lake_stage_day = mean(lake_stage, na.rm = TRUE),
+              harrison_morris_stage_day = mean(harrison_morris_stage, na.rm = TRUE),
+              fall_day = mean(fall, na.rm = TRUE),
+              q_day = mean(q, na.rm = TRUE)) %>% 
+    # ungroup
+    ungroup() 
+
+# look for rows where fall is NA and measurement exists
+fall_vs_mmnts_daily %>% 
+    filter(is.na(q_day) == FALSE,
+           is.na(fall_day) == TRUE)
+
+# there are three rows where stage data is missing for the measurements:
+
+# # A tibble: 3 x 5
+# datetime_rounded    lake_stage_day harrison_morris_stage_day fall_day q_day
+# <dttm>                       <dbl>                     <dbl>    <dbl> <dbl>
+# 1 1999-11-02 00:00:00            NaN                       NaN      NaN   310
+# 2 2000-05-04 00:00:00            NaN                       NaN      NaN   366
+# 3 2000-07-08 00:00:00            NaN                       NaN      NaN   757
+
+# look at those months of data:
+
+fall_vs_mmnts %>% 
+    filter(year(datetime) == 1999, month(datetime) == 11)
+
+fall_vs_mmnts %>% 
+    filter(year(datetime) == 2000, month(datetime) == 05) 
+
+fall_vs_mmnts %>% 
+    filter(year(datetime) == 2000, month(datetime) == 07, day(datetime) == 08) 
+
+# data is missing, still have 105 observations so ignore these three = 102 discrete points total
+
+fall_vs_mmnts_daily <- fall_vs_mmnts_daily %>% 
     drop_na()
+
+summary(fall_vs_mmnts_daily)
 
 # basic
-ggplot(differential_vs_mmnts, aes(x = q, y = difference)) +
+ylab <- "Fall from Harrison Lake to Harrison River below Morris Creek (m)"
+xlab <- "Measured Discharge Harrison River near Harrison Hot Springs (cms)\n 1998 to 2021"
+
+ggplot(fall_vs_mmnts_daily, aes(x = q_day, y = fall_day)) +
     geom_point() + 
-    labs(y = "Difference in stage between Harrison Lake \nand Harrison River at Harrison Mills (m)",
-         x = "Measured Discharge Harrison River near Harrison Hot Springs (cms)\n YEAR TO YEAR") + 
+    labs(y = ylab, x = xlab) + 
     theme_bw()
 
 # according to lake stage
-ggplot(differential_vs_mmnts, aes(x = q, y = difference, size = lake_stage, colour = lake_stage)) +
-    geom_point() + 
-    labs(y = "Difference in stage between Harrison Lake \nand Harrison River at Harrison Mills (m)",
-         x = "Measured Discharge Harrison River near Harrison Hot Springs (cms)\n YEAR TO YEAR") + 
-    theme_bw()
+ggplot(fall_vs_mmnts_daily, aes(x = q_day, y = fall_day)) +
+    geom_point(aes(size = lake_stage_day, colour = lake_stage_day)) + 
+    scale_colour_continuous(limits = c(8, 13), breaks = seq(8, 13, by = 1)) + 
+    scale_size_continuous(limits = c(8, 13), breaks = seq(8, 13, by = 1)) + 
+    labs(y = ylab, x = xlab) + 
+    scale_y_continuous(breaks = seq(0,0.8, by = 0.1)) + 
+    scale_x_continuous(breaks = seq(200,1600,by = 200)) + 
+    theme_bw() + 
+    guides(colour = guide_legend(title = "Lake Stage (m)"), size = guide_legend(title = "Lake Stage (m)"))
 
-# according to date of measurement
-ggplot(differential_vs_mmnts, aes(x = q, y = difference, size = datetime)) +
-    geom_point() + 
-    labs(y = "Difference in stage between Harrison Lake \nand Harrison River at Harrison Mills (m)",
-         x = "Measured Discharge Harrison River near Harrison Hot Springs (cms)\n YEAR TO YEAR") + 
-    theme_bw()
-
-# according to which type of measurement
+# # according to date of measurement
+# ggplot(fall_vs_mmnts, aes(x = q, y = fall, colour = datetime)) +
+#     geom_point() + 
+#     labs(y = ylab, x = xlab) +
+#     theme_bw()
 
 # two slope sections ------------------------------------------------------
 
