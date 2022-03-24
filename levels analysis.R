@@ -95,7 +95,7 @@ harrison_mills <- read.csv("data/Stage.Working@08MG014.EntireRecord.csv",
     select(raw_datetime, Value) %>% 
     # create datetime and actual stage based on CGVD conversion
     mutate(datetime = ymd_hms(raw_datetime),
-           actual_stage = Value - 0.144,
+           actual_stage = Value + 0.144,
            datetime_rounded = round_date(ymd_hms(raw_datetime), "15 minutes")) %>% 
     # group by 15 minute data
     group_by(datetime_rounded) %>% 
@@ -127,7 +127,7 @@ fraser_at_harrison <- read.csv("data/Stage.Working@08MF073.EntireRecord.csv",
     select(raw_datetime, Value) %>% 
     # create datetime and actual stage based on CGVD conversion
     mutate(datetime = ymd_hms(raw_datetime),
-           actual_stage = Value - 0.136,
+           actual_stage = Value + 0.136,
            datetime_rounded = round_date(ymd_hms(raw_datetime), "15 minutes")) %>% 
     # group by 15 minute data
     group_by(datetime_rounded) %>% 
@@ -153,7 +153,7 @@ ggsave("output/levels analysis/08MF073 15 minute level.png", width = w, height =
 
 # load aquarius field visit table -----------------------------------------
 
-# get mmnts from FieldVisitExport.csv - retreived from Regan's python export tool
+# get mmnts from FieldVisitExport.csv - retrieved from Regan's python export tool - round to 15 minute intervals
 aquarius_mmnts <- read.csv("data/FieldVisitExport.csv",
                            stringsAsFactors = FALSE) %>%
     # format datetime
@@ -164,6 +164,7 @@ aquarius_mmnts <- read.csv("data/FieldVisitExport.csv",
     rename(q = Discharge) %>% 
     #select variables of interest
     select(datetime_rounded, q)
+    ######select(datetime_rounded, q, DischargeMethod, DeploymentMethod, DischargeComments, Remarks)
 
 names(aquarius_mmnts) <- c("datetime", "q")
 
@@ -217,7 +218,7 @@ summary(lake_to_morris_comparison)
 ggplot(lake_to_morris_comparison, aes(x = datetime, y = fall)) + 
     geom_line() + 
     theme_bw() + 
-    labs(x = "Year", y = "Fall (m)", title = "Difference between Harrison Lake and Harrison River below Morris Creek")
+    labs(x = "Year", y = "Fall (m)", title = "Fall: Difference between Harrison Lake and Harrison River below Morris Creek")
 ggsave("output/levels analysis/Difference between Harrison Lake and Harrison River below Morris Creek.png", width = w, height = h)
 
 # # overlay measurements - this plot is not great, comment out
@@ -244,14 +245,9 @@ ggsave("output/levels analysis/Difference between Harrison Lake and Harrison Riv
 
 # fall vs measurements ----------------------------------------------
 
-# join fall and measurements
+# join 15 min interval fall and measurements from FieldVisitExport
 fall_vs_mmnts <- full_join(lake_to_morris_comparison, aquarius_mmnts[,c(1,2)])
 summary(fall_vs_mmnts)
-
-# number of q mmnts
-nrow(fall_vs_mmnts) - 558997
-
-# not all measurements correspond to a level - round to daily data
 
 # check where multiple measurements occur on the same day
 multiple_measurements <- fall_vs_mmnts %>%
@@ -261,6 +257,7 @@ multiple_measurements <- fall_vs_mmnts %>%
     select(datetime_rounded) %>% 
     filter(duplicated(datetime_rounded))
 
+# not all measurements correspond to a level - round to daily data, ignore NA values
 fall_vs_mmnts_daily <- fall_vs_mmnts %>% 
     # use floor date to round down for daily date
     mutate(datetime_rounded = floor_date(ymd_hms(datetime), "day")) %>% 
@@ -273,6 +270,7 @@ fall_vs_mmnts_daily <- fall_vs_mmnts %>%
               q_day = mean(q, na.rm = TRUE)) %>% 
     # ungroup
     ungroup() 
+summary(fall_vs_mmnts_daily)
 
 # look for rows where fall is NA and measurement exists
 fall_vs_mmnts_daily %>% 
@@ -285,8 +283,8 @@ fall_vs_mmnts_daily %>%
 # datetime_rounded    lake_stage_day harrison_morris_stage_day fall_day q_day
 # <dttm>                       <dbl>                     <dbl>    <dbl> <dbl>
 # 1 1999-11-02 00:00:00            NaN                       NaN      NaN   310
-# 2 2000-05-04 00:00:00            NaN                       NaN      NaN   366
-# 3 2000-07-08 00:00:00            NaN                       NaN      NaN   757
+# 2 2000-05-03 00:00:00            NaN                       NaN      NaN   366
+# 3 2000-07-07 00:00:00            NaN                       NaN      NaN   757
 
 # look at those months of data:
 
@@ -299,7 +297,12 @@ fall_vs_mmnts %>%
 fall_vs_mmnts %>% 
     filter(year(datetime) == 2000, month(datetime) == 07, day(datetime) == 08) 
 
-# data is missing, still have 105 observations so ignore these three = 102 discrete points total
+#' data is missing, still have 107 observations so ignore three = 104 discrete points total
+#' 120 measurements in FieldVisitExport.csv
+#' 13 days have duplicates so these were merged into a sigle day
+#' Leaves 107 measurement points
+#' Less three more due to no stage data
+#' 104 data points
 
 fall_vs_mmnts_daily <- fall_vs_mmnts_daily %>% 
     drop_na()
@@ -307,8 +310,8 @@ fall_vs_mmnts_daily <- fall_vs_mmnts_daily %>%
 summary(fall_vs_mmnts_daily)
 
 # basic
-ylab <- "Fall from Harrison Lake to Harrison River below Morris Creek (m)"
-xlab <- "Measured Discharge Harrison River near Harrison Hot Springs (cms)\n 1998 to 2021"
+ylab <- "Daily Fall (m)"
+xlab <- "Measured Discharge Harrison River near Harrison Hot Springs (cms)\n 1998 to 2022"
 
 ggplot(fall_vs_mmnts_daily, aes(x = q_day, y = fall_day)) +
     geom_point() + 
@@ -321,33 +324,43 @@ ggplot(fall_vs_mmnts_daily, aes(x = q_day, y = fall_day)) +
     scale_colour_continuous(limits = c(8, 13), breaks = seq(8, 13, by = 1)) + 
     scale_size_continuous(limits = c(8, 13), breaks = seq(8, 13, by = 1)) + 
     labs(y = ylab, x = xlab) + 
-    scale_y_continuous(breaks = seq(0,0.8, by = 0.1)) + 
-    scale_x_continuous(breaks = seq(200,1600,by = 200)) + 
+    # scale_y_continuous(breaks = seq(0,0.8, by = 0.1)) + 
+    # scale_x_continuous(breaks = seq(200,1600,by = 200)) + 
     theme_bw() + 
     guides(colour = guide_legend(title = "Lake Stage (m)"), size = guide_legend(title = "Lake Stage (m)"))
 
-# # according to date of measurement
-# ggplot(fall_vs_mmnts, aes(x = q, y = fall, colour = datetime)) +
-#     geom_point() + 
-#     labs(y = ylab, x = xlab) +
-#     theme_bw()
 
-# two slope sections ------------------------------------------------------
+# slope plot --------------------------------------------------------------
 
 all_levels <- full_join(lake, harrison_morris, by = "datetime") %>% 
-    full_join(harrison_mills, by = "datetime") %>% 
-    full_join(fraser_at_harrison, by = "datetime") %>% 
+    full_join(harrison_mills, by = "datetime") %>%
     # filter for common timespan
-    filter(datetime >= as.POSIXct("2013-03-18")) %>% 
+    filter(datetime >= as.POSIXct("2013-03-18")) # %>%
     # only keep records where we have all 3 stations
-    drop_na()
+    # drop_na()
+
 
 # rename
-names(all_levels) <- c("datetime", "lake", "harrison_morris", "harrison_mills", "fraser_at_harrison")
+names(all_levels) <- c("datetime", "lake", "harrison_morris", "harrison_mills")
+
+summary(all_levels)
+        
+        # aside - look at lake data post 2013 and entire record -- toggle code
+        lake_doy <- lake %>% 
+            # filter(datetime >= as.POSIXct("2013-03-18")) %>% 
+            mutate(doy = yday(datetime)) %>% 
+            group_by(doy) %>% 
+            summarise(stage_daily = mean(stage))
+        
+        summary(lake_doy)
+        
+        ggplot(lake_doy, aes(x = doy, y = stage_daily)) + 
+            geom_point() + 
+            theme_bw()
 
 # pivot longer
 all_levels <- all_levels %>% 
-    pivot_longer(cols = c("lake", "harrison_morris", "harrison_mills", "fraser_at_harrison"), 
+    pivot_longer(cols = c("lake", "harrison_morris", "harrison_mills"), 
                  names_to = "station", 
                  values_to = "stage")
 
@@ -356,25 +369,34 @@ all_levels$distance <- -999
 all_levels$distance <- ifelse(all_levels$station == "lake", 0, all_levels$distance)
 all_levels$distance <- ifelse(all_levels$station == "harrison_morris", 8.4, all_levels$distance)
 all_levels$distance <- ifelse(all_levels$station == "harrison_mills", 16.4, all_levels$distance)
-all_levels$distance <- ifelse(all_levels$station == "fraser_at_harrison", 19, all_levels$distance)
 
+summary(all_levels)
+
+# get daily values
 all_levels_doy <- all_levels %>% 
     mutate(doy = yday(datetime)) %>% 
     group_by(doy, distance) %>% 
+    # summarise(stage_daily = mean(stage, na.rm = TRUE)) %>% 
     summarise(stage_daily = mean(stage)) %>% 
-    drop_na()
+    # drop_na() %>% 
+    ungroup()
+summary(all_levels_doy)
 
 ggplot(all_levels_doy, aes(x = distance, y = stage_daily, colour = factor(doy))) + 
     geom_point() + 
     geom_line() + 
     theme_bw() + 
-    labs(x = "Distance Downstream from Harrison Lake (km)", y = "Daily Stage (m)")
+    labs(x = "Distance Downstream from Harrison Lake (km)", y = "Daily Stage (m)") + 
+    scale_x_continuous(limits = c(0, 17), breaks = c(0, 8.4, 16.4), labels = c("Lake (0 km)", "Harrison River at\nMorris Creek (8.4 km)",
+                                                            "Harrison River at\nHarrison Mills (16.4 km)")) + 
+    theme(legend.position = "none")
 
 all_levels_week <- all_levels %>% 
     mutate(week = week(datetime)) %>% 
     group_by(week, distance) %>% 
     summarise(stage_weekly = mean(stage)) %>% 
-    drop_na()
+    drop_na() %>% 
+    ungroup()
 
 ggplot(all_levels_week, aes(x = distance, y = stage_weekly, colour = factor(week))) + 
     geom_point() + 
