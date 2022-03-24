@@ -1,7 +1,9 @@
 # -------------------------------------------------------------------------
 # Date created:      2021-06-23
 # Author:            E. Anderson
-# Description:       Write a description here.
+# Description:       This script pulls the tables from Q Calculator - Harrison and fits equations to the lookup tables
+#                    to calculate Q according to the J Curve procedure. It compares the fitted equation results to 
+#                    the values calculated in the spreadsheet. 
 # -------------------------------------------------------------------------
 
 
@@ -16,6 +18,8 @@ library(dplyr)
 library(ggplot2)
 
 # load tables -------------------------------------------------------------
+
+# NB: tables are from Copy of Q Calculator - Harrison.xls: split into individual csvs
 
 # get column names
 data_table_headers <- names(read.csv("DataTable.csv", skip = 3, nrows = 1, header = TRUE))
@@ -67,6 +71,10 @@ ggplot(freefall_table_metric, aes(x = gauge_height, y = freefall)) +
   # find breakpoints in m
   geom_vline(xintercept = 29 * 0.3048) +
   geom_vline(xintercept = 34 * 0.3048)
+
+# plot with the axes the same as ISO standard Figure 5 from the Limiting Fall Method
+ggplot(freefall_table_metric, aes(x = freefall, y = gauge_height)) + 
+  geom_point()
 
 # add definition for each part of the curve
 # for gauge_height <= 29 ft, Curve A
@@ -130,6 +138,7 @@ p <- ggplot(freefall_table_metric, aes(x = gauge_height, y = freefall, colour = 
 p
 ggsave("output/Free Fall Plot.png")
 
+# look at plot with equally scaled axes
 p + xlim(0,14) + 
   ylim(0,14)
 
@@ -141,8 +150,10 @@ hq_metric <- hq_ft %>%
     gauge_height = gauge_height * 0.3048,
     freefall_q = freefall_q / 35.31466621266132
   )
+# write to csv for mike to put in Aquarius
+write.csv(hq_metric, "output/hq_metric.csv", row.names = FALSE)
 
-# constants from Excel Solver Q = A * (H-B) ^ n
+# constants from Excel Solver Q = A * (H-B) ^ n in StageDischargeTable.xlsx
 A <- 202.698047863367
 B <- 8.00336254578415
 n <- 1.47968834026629
@@ -224,7 +235,7 @@ calculate_discharge <- function(harrison_lake_elevation, harrison_river_morris_e
   # J-Curve rated discharge
   jcurve_discharge <- freefall_discharge * freefall_q_ratio
 
-  # if freefall_ratio >= 1, then use freefall dicharge ELSE if freefall_ration < 1 then use j curve discharge
+  # if freefall_ratio >= 1, then use freefall discharge ELSE if freefall_ratio < 1 then use j curve discharge
 
   if (freefall_ratio < 1) {
     discharge <- jcurve_discharge
